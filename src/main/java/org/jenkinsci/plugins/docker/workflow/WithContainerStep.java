@@ -24,8 +24,8 @@
 package org.jenkinsci.plugins.docker.workflow;
 
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableSet;
 import org.jenkinsci.plugins.docker.workflow.client.DockerClient;
-import com.google.inject.Inject;
 import hudson.AbortException;
 import hudson.EnvVars;
 import hudson.Extension;
@@ -62,17 +62,16 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.CheckForNull;
 import org.jenkinsci.plugins.docker.commons.fingerprint.DockerFingerprints;
 import org.jenkinsci.plugins.docker.commons.tools.DockerTool;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepDescriptorImpl;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepExecutionImpl;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepImpl;
 import org.jenkinsci.plugins.workflow.steps.BodyExecutionCallback;
 import org.jenkinsci.plugins.workflow.steps.BodyInvoker;
+import org.jenkinsci.plugins.workflow.steps.Step;
 import org.jenkinsci.plugins.workflow.steps.StepContext;
-import org.jenkinsci.plugins.workflow.steps.StepContextParameter;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 
-public class WithContainerStep extends AbstractStepImpl {
+public class WithContainerStep extends Step {
     
     private static final Logger LOGGER = Logger.getLogger(WithContainerStep.class.getName());
     private final @Nonnull String image;
@@ -108,22 +107,32 @@ public class WithContainerStep extends AbstractStepImpl {
         new DockerClient(launcher, node, toolName).stop(launcherEnv, container);
     }
 
-    public static class Execution extends AbstractStepExecutionImpl {
+    @Override
+    public StepExecution start(StepContext stepContext) throws Exception {
+        return new Execution(stepContext, this);
+    }
+
+    public static class Execution extends StepExecution {
 
         private static final long serialVersionUID = 1;
-        @Inject(optional=true) private transient WithContainerStep step;
-        @StepContextParameter private transient Launcher launcher;
-        @StepContextParameter private transient TaskListener listener;
-        @StepContextParameter private transient FilePath workspace;
-        @StepContextParameter private transient EnvVars env;
-        @StepContextParameter private transient Computer computer;
-        @StepContextParameter private transient Node node;
-        @SuppressWarnings("rawtypes") // TODO not compiling on cloudbees.ci
-        @StepContextParameter private transient Run run;
+        private transient WithContainerStep step;
         private String container;
         private String toolName;
 
+        public Execution(StepContext context, WithContainerStep step) {
+            super(context);
+            this.step = step;
+        }
+
         @Override public boolean start() throws Exception {
+            Computer computer = getContext().get(Computer.class);
+            TaskListener listener = getContext().get(TaskListener.class);
+            Node node = getContext().get(Node.class);
+            FilePath workspace = getContext().get(FilePath.class);
+            EnvVars env = getContext().get(EnvVars.class);
+            Launcher launcher = getContext().get(Launcher.class);
+            Run run = getContext().get(Run.class);
+
             EnvVars envReduced = new EnvVars(env);
             EnvVars envHost = computer.getEnvironment();
             envReduced.entrySet().removeAll(envHost.entrySet());
@@ -208,7 +217,8 @@ public class WithContainerStep extends AbstractStepImpl {
         @Override public void stop(@Nonnull Throwable cause) throws Exception {
             if (container != null) {
                 LOGGER.log(Level.FINE, "stopping container " + container, cause);
-                destroy(container, launcher, getContext().get(Node.class), env, toolName);
+                destroy(container, getContext().get(Launcher.class), getContext().get(Node.class),
+                    getContext().get(EnvVars.class), toolName);
             }
         }
 
@@ -348,10 +358,19 @@ public class WithContainerStep extends AbstractStepImpl {
 
     }
 
-    @Extension public static class DescriptorImpl extends AbstractStepDescriptorImpl {
+    @Extension public static class DescriptorImpl extends StepDescriptor {
 
-        public DescriptorImpl() {
-            super(Execution.class);
+        @Override
+        public Set<? extends Class<?>> getRequiredContext() {
+
+            return ImmutableSet.of(
+                EnvVars.class,
+                Computer.class,
+                FilePath.class,
+                Launcher.class,
+                Node.class,
+                Run.class,
+                TaskListener.class);
         }
 
         @Override public String getFunctionName() {

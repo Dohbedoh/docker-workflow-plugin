@@ -23,7 +23,7 @@
  */
 package org.jenkinsci.plugins.docker.workflow;
 
-import com.google.inject.Inject;
+import com.google.common.collect.ImmutableSet;
 import hudson.EnvVars;
 import hudson.Extension;
 import hudson.FilePath;
@@ -31,19 +31,22 @@ import hudson.Launcher;
 import hudson.model.Job;
 import hudson.model.Node;
 import hudson.model.TaskListener;
-import java.io.IOException;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerRegistryEndpoint;
 import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterialFactory;
 import org.jenkinsci.plugins.docker.commons.tools.DockerTool;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepDescriptorImpl;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepImpl;
-import org.jenkinsci.plugins.workflow.steps.StepContextParameter;
+import org.jenkinsci.plugins.workflow.steps.Step;
+import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 
-public class RegistryEndpointStep extends AbstractStepImpl {
+import javax.annotation.CheckForNull;
+import javax.annotation.Nonnull;
+import java.io.IOException;
+import java.util.Set;
+
+public class RegistryEndpointStep extends Step {
     
     private final @Nonnull DockerRegistryEndpoint registry;
     private @CheckForNull String toolName;
@@ -65,28 +68,46 @@ public class RegistryEndpointStep extends AbstractStepImpl {
         this.toolName = toolName;
     }
 
+    @Override
+    public StepExecution start(StepContext stepContext) throws Exception {
+        return new Execution(stepContext, this);
+    }
+
     public static class Execution extends AbstractEndpointStepExecution {
 
         private static final long serialVersionUID = 1;
 
-        @Inject(optional=true) private transient RegistryEndpointStep step;
-        @StepContextParameter private transient Job<?,?> job;
-        @StepContextParameter private transient FilePath workspace;
-        @StepContextParameter private transient Launcher launcher;
-        @StepContextParameter private transient TaskListener listener;
-        @StepContextParameter private transient Node node;
-        @StepContextParameter private transient EnvVars envVars;
+        private transient RegistryEndpointStep step;
+
+        public Execution(StepContext context, RegistryEndpointStep step) {
+            super(context);
+            this.step = step;
+        }
 
         @Override protected KeyMaterialFactory newKeyMaterialFactory() throws IOException, InterruptedException {
-            return step.registry.newKeyMaterialFactory(job, workspace, launcher, listener, DockerTool.getExecutable(step.toolName, node, listener, envVars));
+            TaskListener listener = getContext().get(TaskListener.class);
+            return step.registry.newKeyMaterialFactory(
+                getContext().get(Job.class),
+                getContext().get(FilePath.class),
+                getContext().get(Launcher.class),
+                listener,
+                DockerTool.getExecutable(step.toolName, getContext().get(Node.class), listener,
+                    getContext().get(EnvVars.class)));
         }
 
     }
 
-    @Extension public static class DescriptorImpl extends AbstractStepDescriptorImpl {
+    @Extension public static class DescriptorImpl extends StepDescriptor {
 
-        public DescriptorImpl() {
-            super(Execution.class);
+        @Override
+        public Set<? extends Class<?>> getRequiredContext() {
+            return ImmutableSet.of(
+                EnvVars.class,
+                FilePath.class,
+                Job.class,
+                Launcher.class,
+                Node.class,
+                TaskListener.class);
         }
 
         @Override public String getFunctionName() {

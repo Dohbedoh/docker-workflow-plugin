@@ -23,20 +23,23 @@
  */
 package org.jenkinsci.plugins.docker.workflow;
 
-import com.google.inject.Inject;
+import com.google.common.collect.ImmutableSet;
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.model.Job;
-import java.io.IOException;
-import javax.annotation.Nonnull;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerServerEndpoint;
 import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterialFactory;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepDescriptorImpl;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepImpl;
-import org.jenkinsci.plugins.workflow.steps.StepContextParameter;
+import org.jenkinsci.plugins.workflow.steps.Step;
+import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 
-public class ServerEndpointStep extends AbstractStepImpl {
+import javax.annotation.Nonnull;
+import java.io.IOException;
+import java.util.Set;
+
+public class ServerEndpointStep extends Step {
     
     private final @Nonnull DockerServerEndpoint server;
 
@@ -49,24 +52,35 @@ public class ServerEndpointStep extends AbstractStepImpl {
         return server;
     }
 
+    @Override
+    public StepExecution start(StepContext stepContext) throws Exception {
+        return new Execution(stepContext, this);
+    }
+
     public static class Execution extends AbstractEndpointStepExecution {
 
         private static final long serialVersionUID = 1;
 
-        @Inject(optional=true) private transient ServerEndpointStep step;
-        @StepContextParameter private transient Job<?,?> job;
-        @StepContextParameter private transient FilePath workspace;
+        private transient ServerEndpointStep step;
+
+        public Execution(StepContext context, ServerEndpointStep step) {
+            super(context);
+            this.step = step;
+        }
 
         @Override protected KeyMaterialFactory newKeyMaterialFactory() throws IOException, InterruptedException {
-            return step.server.newKeyMaterialFactory(job, workspace.getChannel());
+            return step.server.newKeyMaterialFactory(
+                getContext().get(Job.class),
+                getContext().get(FilePath.class).getChannel());
         }
 
     }
 
-    @Extension public static class DescriptorImpl extends AbstractStepDescriptorImpl {
+    @Extension public static class DescriptorImpl extends StepDescriptor {
 
-        public DescriptorImpl() {
-            super(Execution.class);
+        @Override
+        public Set<? extends Class<?>> getRequiredContext() {
+            return ImmutableSet.of(FilePath.class, Job.class);
         }
 
         @Override public String getFunctionName() {

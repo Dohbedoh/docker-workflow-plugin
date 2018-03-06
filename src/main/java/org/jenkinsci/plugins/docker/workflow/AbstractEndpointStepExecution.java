@@ -29,16 +29,20 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterial;
 import org.jenkinsci.plugins.docker.commons.credentials.KeyMaterialFactory;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepExecutionImpl;
 import org.jenkinsci.plugins.workflow.steps.BodyExecutionCallback;
 import org.jenkinsci.plugins.workflow.steps.EnvironmentExpander;
 import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
 
-abstract class AbstractEndpointStepExecution extends AbstractStepExecutionImpl {
+abstract class AbstractEndpointStepExecution extends StepExecution {
 
     private static final long serialVersionUID = 1;
 
     protected abstract KeyMaterialFactory newKeyMaterialFactory() throws IOException, InterruptedException;
+
+    public AbstractEndpointStepExecution(StepContext context) {
+        super(context);
+    }
 
     @Override public final boolean start() throws Exception {
         KeyMaterialFactory keyMaterialFactory = newKeyMaterialFactory();

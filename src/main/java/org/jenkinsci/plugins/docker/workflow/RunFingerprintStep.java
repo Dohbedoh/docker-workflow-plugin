@@ -23,8 +23,7 @@
  */
 package org.jenkinsci.plugins.docker.workflow;
 
-import org.jenkinsci.plugins.docker.workflow.client.DockerClient;
-import com.google.inject.Inject;
+import com.google.common.collect.ImmutableSet;
 import hudson.EnvVars;
 import hudson.Extension;
 import hudson.Launcher;
@@ -32,14 +31,19 @@ import hudson.Util;
 import hudson.model.Node;
 import hudson.model.Run;
 import org.jenkinsci.plugins.docker.commons.fingerprint.DockerFingerprints;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepDescriptorImpl;
-import org.jenkinsci.plugins.workflow.steps.AbstractStepImpl;
-import org.jenkinsci.plugins.workflow.steps.AbstractSynchronousNonBlockingStepExecution;
-import org.jenkinsci.plugins.workflow.steps.StepContextParameter;
+import org.jenkinsci.plugins.docker.workflow.client.DockerClient;
+import org.jenkinsci.plugins.workflow.steps.Step;
+import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
+import org.jenkinsci.plugins.workflow.steps.SynchronousNonBlockingStepExecution;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 
-public class RunFingerprintStep extends AbstractStepImpl {
+import javax.annotation.Nonnull;
+import java.util.Set;
+
+public class RunFingerprintStep extends Step {
 
     private final String containerId;
     private String toolName;
@@ -60,20 +64,28 @@ public class RunFingerprintStep extends AbstractStepImpl {
         this.toolName = Util.fixEmpty(toolName);
     }
 
-    public static class Execution extends AbstractSynchronousNonBlockingStepExecution<Void> {
+    @Override
+    public StepExecution start(StepContext stepContext) throws Exception {
+        return new Execution(stepContext, this);
+    }
+
+    public static class Execution extends SynchronousNonBlockingStepExecution<Void> {
         
         private static final long serialVersionUID = 1L;
 
-        @Inject(optional=true) private transient RunFingerprintStep step;
-        @SuppressWarnings("rawtypes") // TODO not compiling on cloudbees.ci
-        @StepContextParameter private transient Run run;
-        @StepContextParameter private transient Launcher launcher;
-        @StepContextParameter private transient EnvVars env;
-        @StepContextParameter private transient Node node;
+        private transient RunFingerprintStep step;
+
+        protected Execution(@Nonnull StepContext context, RunFingerprintStep step) {
+            super(context);
+            this.step = step;
+        }
 
         @SuppressWarnings("SynchronizeOnNonFinalField") // run is quasi-final
         @Override protected Void run() throws Exception {
-            DockerClient client = new DockerClient(launcher, node, step.toolName);
+            DockerClient client = new DockerClient(getContext().get(Launcher.class), getContext().get(Node.class),
+                step.toolName);
+            EnvVars env = getContext().get(EnvVars.class);
+            Run run = getContext().get(Run.class);
             DockerFingerprints.addRunFacet(client.getContainerRecord(env, step.containerId), run);
             String image = client.inspect(env, step.containerId, ".Config.Image");
             if (image != null) {
@@ -84,10 +96,15 @@ public class RunFingerprintStep extends AbstractStepImpl {
 
     }
 
-    @Extension public static class DescriptorImpl extends AbstractStepDescriptorImpl {
+    @Extension public static class DescriptorImpl extends StepDescriptor {
 
-        public DescriptorImpl() {
-            super(Execution.class);
+        @Override
+        public Set<? extends Class<?>> getRequiredContext() {
+            return ImmutableSet.of(
+                EnvVars.class,
+                Launcher.class,
+                Node.class,
+                Run.class);
         }
 
         @Override public String getFunctionName() {
